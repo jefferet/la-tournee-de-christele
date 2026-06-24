@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { SCENES, GAME_WIDTH, GAME_HEIGHT, COLORS } from '../config/constants.js'
 import { sfx, initAudioOnFirstGesture } from '../audio/sfx.js'
+import { startMusic } from '../audio/music.js'
 
 /**
  * Menu scene — title screen.
@@ -55,6 +56,7 @@ export class MenuScene extends Phaser.Scene {
       // eslint-disable-next-line no-console
       console.log('[MenuScene] JOUER clicked — launching PatientLevelScene.')
       sfx.play('menuSelect')
+      startMusic()  // start the chiptune loop (no-op if already playing)
       this.scene.start(SCENES.PATIENT, { levelId: 'patient-1' })
     })
 

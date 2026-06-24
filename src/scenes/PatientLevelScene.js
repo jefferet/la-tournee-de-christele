@@ -9,6 +9,7 @@ import { Indus } from '../entities/enemies/Indus.js'
 import { Patient } from '../entities/enemies/Patient.js'
 import { CarteVitale } from '../entities/CarteVitale.js'
 import { sfx, initAudioOnFirstGesture } from '../audio/sfx.js'
+import { startMusic, stopMusic } from '../audio/music.js'
 
 /**
  * Axis-Aligned Bounding Box overlap test.
@@ -43,6 +44,14 @@ export class PatientLevelScene extends Phaser.Scene {
 
     // === Init 8-bit audio (lazy, on first user gesture) ===
     initAudioOnFirstGesture(this)
+
+    // Start the chiptune loop (no-op if already playing from MenuScene).
+    // startMusic() bails silently if AudioContext isn't ready yet.
+    startMusic()
+    // Also try again after the first user gesture, in case audio wasn't
+    // ready when this scene was created.
+    this.input.once('pointerdown', () => startMusic())
+    this.input.keyboard.once('keydown', () => startMusic())
 
     // Containers for the 3 entity types
     this.indus = []                // Falling indus (avoid)

@@ -81,6 +81,17 @@ export function isMuted() {
 }
 
 /**
+ * Expose the audio context for other audio modules (music.js) to share.
+ * Returns null if audio hasn't been initialized yet.
+ */
+export function getAudioContext() {
+  return _ctx
+}
+export function getMasterGain() {
+  return _master
+}
+
+/**
  * Core helpers (low-level WebAudio primitives)
  */
 function _osc(type, freq, duration, opts = {}) {
