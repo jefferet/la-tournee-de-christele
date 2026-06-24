@@ -49,27 +49,40 @@ const PATTERN_LENGTH_TICKS = 384  // 24 bars
 // Channels: 0=bass, 1=lead, 2=kick
 const PATTERN = [
   // ============ BASS LINE (one root per bar, 24 bars) ============
-  // 6 × (Am F C G)
-  [0,   N.A2, 16, 0],  [64,  N.A2, 16, 0],
-  [16,  N.A2, 16, 0],  [80,  N.A2, 16, 0],
-  [32,  N.F2, 16, 0],  [96,  N.F2, 16, 0],
-  [48,  N.F2, 16, 0],  [112, N.F2, 16, 0],
-  [64,  N.C3, 16, 0],  [128, N.C3, 16, 0],
-  [80,  N.C3, 16, 0],  [144, N.C3, 16, 0],
-  [96,  N.G2, 16, 0],  [160, N.G2, 16, 0],
-  [112, N.G2, 16, 0],  [176, N.G2, 16, 0],
-  [128, N.A2, 16, 0],  [192, N.A2, 16, 0],
-  [144, N.A2, 16, 0],  [208, N.A2, 16, 0],
-  [160, N.F2, 16, 0],  [224, N.F2, 16, 0],
-  [176, N.F2, 16, 0],  [240, N.F2, 16, 0],
-  [192, N.C3, 16, 0],  [256, N.C3, 16, 0],
-  [208, N.C3, 16, 0],  [272, N.C3, 16, 0],
-  [224, N.G2, 16, 0],  [288, N.G2, 16, 0],
-  [240, N.G2, 16, 0],  [304, N.G2, 16, 0],
-  [256, N.A2, 16, 0],  [320, N.A2, 16, 0],
-  [272, N.A2, 16, 0],  [336, N.A2, 16, 0],
-  [288, N.F2, 16, 0],  [352, N.F2, 16, 0],
-  [304, N.F2, 16, 0],  [368, N.F2, 16, 0],
+  // 6 × (Am F C G) progression. Bar numbers in comments for clarity.
+  // Bar 1 (Am):  A2
+  // Bar 2 (Am):  A2
+  // Bar 3 (F):   F2
+  // Bar 4 (F):   F2
+  // Bar 5 (C):   C3
+  // Bar 6 (C):   C3
+  // Bar 7 (G):   G2
+  // Bar 8 (G):   G2
+  // ...repeats 6 times total (24 bars)
+  [0,   N.A2, 16, 0],
+  [16,  N.A2, 16, 0],
+  [32,  N.F2, 16, 0],
+  [48,  N.F2, 16, 0],
+  [64,  N.C3, 16, 0],
+  [80,  N.C3, 16, 0],
+  [96,  N.G2, 16, 0],
+  [112, N.G2, 16, 0],
+  [128, N.A2, 16, 0],
+  [144, N.A2, 16, 0],
+  [160, N.F2, 16, 0],
+  [176, N.F2, 16, 0],
+  [192, N.C3, 16, 0],
+  [208, N.C3, 16, 0],
+  [224, N.G2, 16, 0],
+  [240, N.G2, 16, 0],
+  [256, N.A2, 16, 0],
+  [272, N.A2, 16, 0],
+  [288, N.F2, 16, 0],
+  [304, N.F2, 16, 0],
+  [320, N.C3, 16, 0],
+  [336, N.C3, 16, 0],
+  [352, N.G2, 16, 0],
+  [368, N.G2, 16, 0],
 
   // ============ LEAD MELODY ============
   // Phrase 1 (Am, bars 1-2): ascending line, calmer
@@ -185,10 +198,6 @@ const PATTERN = [
   [364, N.D5, 4, 1],
   [368, N.A4, 8, 1],
   [376, N.E4, 8, 1],
-
-  // ============ KICK DRUM (every beat = every 4 ticks) ============
-  // Pattern: kick on 1 and 3 of every bar (NES classic)
-  // Built outside the array literal below (JS doesn't allow for-loops in []).
 ]
 
 // Build kick pattern: kick on beats 1 and 3 of every bar (24 bars)
@@ -219,23 +228,23 @@ function _scheduleNote(time, semitones, duration, channel) {
     osc.frequency.setValueAtTime(120, time)
     osc.frequency.exponentialRampToValueAtTime(40, time + 0.08)
     gain.gain.setValueAtTime(0, time)
-    gain.gain.linearRampToValueAtTime(0.45, time + 0.005)
+    gain.gain.linearRampToValueAtTime(0.55, time + 0.005)
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12)
   } else if (channel === 0) {
     // Bass: triangle, deep and round
     osc.type = 'triangle'
     osc.frequency.value = _freq(semitones)
     gain.gain.setValueAtTime(0, time)
-    gain.gain.linearRampToValueAtTime(0.13, time + 0.01)
-    gain.gain.setValueAtTime(0.13, time + duration * SIXTEENTH * 0.4)
+    gain.gain.linearRampToValueAtTime(0.22, time + 0.01)
+    gain.gain.setValueAtTime(0.22, time + duration * SIXTEENTH * 0.4)
     gain.gain.linearRampToValueAtTime(0, time + duration * SIXTEENTH)
   } else {
     // Lead: square, brighter
     osc.type = 'square'
     osc.frequency.value = _freq(semitones)
     gain.gain.setValueAtTime(0, time)
-    gain.gain.linearRampToValueAtTime(0.07, time + 0.008)
-    gain.gain.setValueAtTime(0.07, time + duration * SIXTEENTH * 0.5)
+    gain.gain.linearRampToValueAtTime(0.12, time + 0.008)
+    gain.gain.setValueAtTime(0.12, time + duration * SIXTEENTH * 0.5)
     gain.gain.linearRampToValueAtTime(0, time + duration * SIXTEENTH)
   }
 
@@ -248,6 +257,7 @@ function _scheduleNote(time, semitones, duration, channel) {
 let _isPlaying = false
 let _timeoutId = null
 let _musicVolume = 1.0  // 0..1, for ducking during game over
+let _pendingStart = false  // set true by startMusic() if AudioContext not ready yet
 
 const _loopDurationSec = PATTERN_LENGTH_TICKS * SIXTEENTH  // ~52.4s
 
@@ -269,17 +279,21 @@ function _scheduleNextLoop() {
 export function startMusic() {
   if (_isPlaying) return
   if (!getAudioContext()) {
-    console.warn('[music] AudioContext not ready — call startMusic after first user gesture')
+    // Audio not ready yet — queue start, will fire on 'mavis-audio-ready'
+    _pendingStart = true
+    console.log('[music] Audio not ready, queued')
     return
   }
+  _pendingStart = false
   _isPlaying = true
-  console.log('[music] Start')
+  console.log('[music] Start (loop:', _loopDurationSec.toFixed(1), 's, notes:', FULL_PATTERN.length, ')')
   _scheduleNextLoop()
 }
 
 export function stopMusic() {
   if (!_isPlaying) return
   _isPlaying = false
+  _pendingStart = false
   if (_timeoutId) {
     clearTimeout(_timeoutId)
     _timeoutId = null
@@ -297,7 +311,14 @@ export function isMusicPlaying() {
  */
 export function setMusicVolume(vol) {
   _musicVolume = Math.max(0, Math.min(1, vol))
-  // We don't have per-channel gain yet; for now this is a no-op placeholder
-  // for future per-channel volume routing. Music volume is controlled by the
-  // master gain via the mute button.
+  // Future: route through per-channel gain nodes
 }
+
+// Auto-start when sfx.js finishes initializing the AudioContext.
+// sfx.js dispatches 'mavis-audio-ready' on window when ready.
+window.addEventListener('mavis-audio-ready', () => {
+  if (_pendingStart) {
+    console.log('[music] Audio ready, starting queued music')
+    startMusic()
+  }
+})

@@ -54,8 +54,10 @@ export class HUD extends Phaser.GameObjects.Container {
     this.add(this.highScoreText)
 
     // === Mute button (top-right, just below HI score) ===
+    // IMPORTANT: emoji glyphs require a font that supports them — 'monospace'
+    // does NOT include 🔊/🔇, so we use a sans-serif + emoji-font fallback.
     this.muteBtn = this.scene.add.text(GAME_WIDTH - 8, 36, isMuted() ? '🔇' : '🔊', {
-      fontFamily: 'monospace',
+      fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", Arial, sans-serif',
       fontSize: '12px',
     }).setOrigin(1, 0).setInteractive({ useHandCursor: true })
     this.muteBtn.on('pointerdown', (pointer, lx, ly, event) => {

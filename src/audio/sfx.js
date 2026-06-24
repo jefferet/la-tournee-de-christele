@@ -32,10 +32,18 @@ let _muted = false
  * Lazily create the AudioContext on the first user gesture.
  * Chrome/Safari require user interaction before audio can play.
  * Call this from scene.create() — it hooks Phaser's first input event.
+ * Dispatches a 'mavis-audio-ready' window event once the context is ready,
+ * so other modules (music.js) can auto-start.
  */
 export function initAudioOnFirstGesture(scene) {
   const tryInit = () => {
-    if (_ctx) return
+    if (_ctx) {
+      // Already initialized — just make sure it's running
+      if (_ctx.state === 'suspended') {
+        _ctx.resume().catch(() => {})
+      }
+      return
+    }
     try {
       const AC = window.AudioContext || window.webkitAudioContext
       if (!AC) {
@@ -46,7 +54,9 @@ export function initAudioOnFirstGesture(scene) {
       _master = _ctx.createGain()
       _master.gain.value = _muted ? 0 : 0.6
       _master.connect(_ctx.destination)
-      console.log('[sfx] AudioContext ready')
+      console.log('[sfx] AudioContext ready, state:', _ctx.state)
+      // Notify other modules (music.js listens for this)
+      window.dispatchEvent(new CustomEvent('mavis-audio-ready'))
     } catch (e) {
       console.warn('[sfx] AudioContext init failed:', e)
     }
@@ -67,6 +77,8 @@ export function initAudioOnFirstGesture(scene) {
   }
   // Also try on any document-level click (covers PWA edge cases)
   document.addEventListener('pointerdown', onFirst, { once: true })
+  document.addEventListener('keydown', onFirst, { once: true })
+  document.addEventListener('touchstart', onFirst, { once: true, passive: true })
 }
 
 /**
