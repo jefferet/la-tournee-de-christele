@@ -2,9 +2,28 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
-    <title>La Tournée de Sophie</title>
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Sophie" />
+    <meta name="application-name" content="Sophie" />
+    <meta name="screen-orientation" content="landscape" />
+    <meta name="orientation" content="landscape" />
+
+    <!-- PWA manifest -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#000000" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="./icons/icon-512.png" />
+
+    <title>La Tournée de Christele</title>
+
     <style>
       * {
         margin: 0;
@@ -37,10 +56,26 @@
         image-rendering: crisp-edges;
         margin: 0 auto;
       }
+      /* Force landscape on mobile browsers that respect the orientation API */
+      @media (orientation: portrait) {
+        html, body {
+          /* Allow portrait but suggest landscape via overlay (handled in JS) */
+        }
+      }
     </style>
-    <script type="module" crossorigin src="./assets/index-r8KwsJUM.js"></script>
+    <script type="module" crossorigin src="./assets/index-DKjmwCmX.js"></script>
   </head>
   <body>
     <div id="game-container"></div>
+    <script>
+      // Register Service Worker for PWA offline support
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.warn('[PWA] Service worker registration failed:', err)
+          })
+        })
+      }
+    </script>
   </body>
 </html>

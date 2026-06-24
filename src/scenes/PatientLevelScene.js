@@ -4,6 +4,7 @@ import { state } from '../utils/stateManager.js'
 import { Christele } from '../entities/Christele.js'
 import { Syringe } from '../entities/projectiles/Syringe.js'
 import { HUD } from '../ui/HUD.js'
+import { TouchControls } from '../ui/TouchControls.js'
 import { Indus } from '../entities/enemies/Indus.js'
 import { Patient } from '../entities/enemies/Patient.js'
 import { CarteVitale } from '../entities/CarteVitale.js'
@@ -98,6 +99,14 @@ export class PatientLevelScene extends Phaser.Scene {
       this.scene.start(SCENES.MENU)
     })
 
+    // === Touch controls (mobile/tablet) ===
+    this.touchControls = new TouchControls(this, this.christele)
+    this.add.existing(this.touchControls)
+
+    // === Touch controls (mobile/tablet landscape) ===
+    this.touchControls = new TouchControls(this, this.christele)
+    this.add.existing(this.touchControls)
+
     // === DEBUG: toggle hitbox overlay (key B) ===
     this.debugHitboxes = false
     this.debugGraphics = this.add.graphics().setDepth(9999).setVisible(false)
@@ -153,6 +162,9 @@ export class PatientLevelScene extends Phaser.Scene {
     // Skip update if Christele is gone or already dead
     if (!this.christele || !this.christele.alive) return
 
+    // Touch controls must update BEFORE christele so the inputState is
+    // set before christele.update() reads it.
+    if (this.touchControls) this.touchControls.update(time, delta)
     this.christele.update(time, delta)
     this.hud.update()
 

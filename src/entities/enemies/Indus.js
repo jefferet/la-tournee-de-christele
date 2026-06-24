@@ -1,0 +1,90 @@
+import Phaser from 'phaser'
+import { GAME_WIDTH, GAME_HEIGHT } from '../../config/constants.js'
+
+/**
+ * Indus — an administrative document (CPAM notification, control, etc.)
+ * that falls from the sky. Christele must shoot them down before they hit her.
+ * It's the bane of every self-employed nurse.
+ */
+export class Indus extends Phaser.GameObjects.Container {
+  constructor(scene, x, y) {
+    super(scene, x, y)
+    this.scene = scene
+    this.hp = 1
+    this.maxHp = 1
+    this.damage = 1
+    this.scoreValue = 0  // Don't award points for indus (they're the enemy)
+    this.alive = true
+    this.invulnerable = false
+    this.flashing = false
+
+    this.bodySprite = scene.add.sprite(0, 0, 'indus', 0)
+    this.add(this.bodySprite)
+
+    this.fallSpeed = 60
+  }
+
+  /**
+   * Returns the AABB hitbox used for entity-vs-entity collision.
+   * Matches the 64x64 sprite frame exactly.
+   */
+  getHitbox() {
+    return {
+      x: this.x - 32,
+      y: this.y - 32,
+      width: 64,
+      height: 64,
+    }
+  }
+
+  takeDamage(amount) {
+    if (!this.alive || this.invulnerable) return false
+    this.hp -= amount
+    this.flashing = true
+    this.scene.tweens.add({
+      targets: this,
+      alpha: 0.3,
+      duration: 60,
+      yoyo: true,
+      repeat: 1,
+      onComplete: () => { this.flashing = false; this.setAlpha(1) },
+    })
+    if (this.hp <= 0) {
+      this.die()
+      return true
+    }
+    return false
+  }
+
+  die() {
+    this.alive = false
+    if (this.scene.state) {
+      this.scene.state.addScore(this.scoreValue)
+    }
+    this.scene.tweens.add({
+      targets: this,
+      scaleX: 0,
+      scaleY: 0,
+      alpha: 0,
+      duration: 200,
+      onComplete: () => this.destroy(),
+    })
+  }
+
+  update(time, delta) {
+    if (!this.alive) return
+    this.y += this.fallSpeed * (delta / 1000)
+    if (this.y > GAME_HEIGHT + 64) {
+      this.alive = false
+      this.destroy()
+    }
+  }
+
+  destroy(fromScene) {
+    if (this.scene && this.scene.indus) {
+      const idx = this.scene.indus.indexOf(this)
+      if (idx >= 0) this.scene.indus.splice(idx, 1)
+    }
+    super.destroy(fromScene)
+  }
+}

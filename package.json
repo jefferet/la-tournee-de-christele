@@ -1,0 +1,21 @@
+{
+  "name": "la-tournee-de-christele",
+  "version": "0.1.0",
+  "description": "Shoot them up 2D pixel art 16-bit - Christele, infirmiere liberale, en tournee.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "vite": "^8.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
