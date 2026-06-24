@@ -228,23 +228,23 @@ function _scheduleNote(time, semitones, duration, channel) {
     osc.frequency.setValueAtTime(120, time)
     osc.frequency.exponentialRampToValueAtTime(40, time + 0.08)
     gain.gain.setValueAtTime(0, time)
-    gain.gain.linearRampToValueAtTime(0.55, time + 0.005)
+    gain.gain.linearRampToValueAtTime(0.40, time + 0.005)
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12)
   } else if (channel === 0) {
     // Bass: triangle, deep and round
     osc.type = 'triangle'
     osc.frequency.value = _freq(semitones)
     gain.gain.setValueAtTime(0, time)
-    gain.gain.linearRampToValueAtTime(0.22, time + 0.01)
-    gain.gain.setValueAtTime(0.22, time + duration * SIXTEENTH * 0.4)
+    gain.gain.linearRampToValueAtTime(0.18, time + 0.01)
+    gain.gain.setValueAtTime(0.18, time + duration * SIXTEENTH * 0.4)
     gain.gain.linearRampToValueAtTime(0, time + duration * SIXTEENTH)
   } else {
     // Lead: square, brighter
     osc.type = 'square'
     osc.frequency.value = _freq(semitones)
     gain.gain.setValueAtTime(0, time)
-    gain.gain.linearRampToValueAtTime(0.12, time + 0.008)
-    gain.gain.setValueAtTime(0.12, time + duration * SIXTEENTH * 0.5)
+    gain.gain.linearRampToValueAtTime(0.10, time + 0.008)
+    gain.gain.setValueAtTime(0.10, time + duration * SIXTEENTH * 0.5)
     gain.gain.linearRampToValueAtTime(0, time + duration * SIXTEENTH)
   }
 

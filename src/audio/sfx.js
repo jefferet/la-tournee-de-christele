@@ -25,6 +25,7 @@ let _master = null
 let _muted = false
 let _resumed = false
 let _initTried = false
+let _volumeScale = 0.5  // 0..1, controlled by VolumeSlider. Multiplied with master max.
 
 /**
  * Initialize the AudioContext. Safe to call multiple times.
@@ -42,12 +43,20 @@ function _initContext() {
     }
     _ctx = new AC()
     _master = _ctx.createGain()
-    _master.gain.value = _muted ? 0 : 0.6
+    _applyMasterGain()
     _master.connect(_ctx.destination)
     console.log('[sfx] AudioContext created, state:', _ctx.state)
   } catch (e) {
     console.warn('[sfx] AudioContext init failed:', e)
   }
+}
+
+function _applyMasterGain() {
+  if (!_master) return
+  // Master is gated by mute, scaled by volume slider.
+  // Max gain is 0.5 (lower than the previous default of 0.6 because the
+  // music was too loud at default). Slider scales 0..1.
+  _master.gain.value = _muted ? 0 : 0.5 * _volumeScale
 }
 
 /**
@@ -116,12 +125,21 @@ export function initAudioOnFirstGesture(scene) {
  */
 export function setMuted(muted) {
   _muted = !!muted
-  if (_master) {
-    _master.gain.value = _muted ? 0 : 0.6
-  }
+  _applyMasterGain()
 }
 export function isMuted() {
   return _muted
+}
+
+/**
+ * Volume scale from the slider (0..1). Updates master gain live.
+ */
+export function setMasterVolumeScale(v) {
+  _volumeScale = Math.max(0, Math.min(1, v))
+  _applyMasterGain()
+}
+export function getMasterVolumeScale() {
+  return _volumeScale
 }
 
 /**
@@ -273,13 +291,15 @@ export const sfx = {
       if (!_ctx) return
     }
     if (_ctx.state === 'suspended') _tryResume()
-    if (_muted) return
+    if (_muted || _volumeScale < 0.01) return
     const fn = _play[name]
     if (fn) fn()
     else console.warn('[sfx] unknown sound:', name)
   },
   setMuted,
   isMuted,
+  setMasterVolumeScale,
+  getMasterVolumeScale,
   getAudioContext,
   getMasterGain,
 }

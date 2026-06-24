@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { GAME_WIDTH, GAME_HEIGHT, COLORS, CHRISTELE } from '../config/constants.js'
 import { state } from '../utils/stateManager.js'
 import { sfx, isMuted, setMuted } from '../audio/sfx.js'
+import { VolumeSlider } from './VolumeSlider.js'
 
 /**
  * HUD — heads-up display.
@@ -53,7 +54,7 @@ export class HUD extends Phaser.GameObjects.Container {
     }).setOrigin(1, 0)
     this.add(this.highScoreText)
 
-    // === Mute button (top-right, just below HI score) ===
+    // === Mute button (top-right corner) + Volume slider (just to its left) ===
     // Plain text + colored rectangle (no emoji, works in any font)
     // ♪ U+266A is in basic monospace fonts. Toggle ♪ ↔ "—" for muted.
     const btnX = GAME_WIDTH - 8
@@ -79,6 +80,17 @@ export class HUD extends Phaser.GameObjects.Container {
       if (!next) sfx.play('menuSelect')
     })
     this.add(this.muteBtn)
+
+    // === Volume slider (just left of mute button) ===
+    // 60×6 track + circular knob. Drag to adjust, click track to jump.
+    // Value is read by sfx.js to scale the master gain.
+    const sliderX = btnX - btnW - 8  // 8px gap
+    const sliderW = 60
+    this.volumeSlider = new VolumeSlider(this.scene, sliderX - sliderW, btnY + 7, sliderW)
+    this.add(this.volumeSlider)
+    // Apply initial volume to the master gain
+    this._applyVolumeToMaster()
+    this.volumeSlider.on('change', (v) => this._applyVolumeToMaster())
 
     // === Dash cooldown (bottom-center) ===
     this.dashBarBg = this.scene.add.graphics()
@@ -120,6 +132,16 @@ export class HUD extends Phaser.GameObjects.Container {
       croissant.y = 0
       this.livesContainer.add(croissant)
     }
+  }
+
+  /**
+   * Apply the current volume slider value to the master gain.
+   * Maps slider 0..1 to gain 0..0.6 (so 100% = current default).
+   * If muted, gain is 0.
+   */
+  _applyVolumeToMaster() {
+    const v = this.volumeSlider ? this.volumeSlider.value : 0.5
+    setMasterVolumeScale(v)
   }
 
   update() {
