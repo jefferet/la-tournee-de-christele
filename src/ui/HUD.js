@@ -54,18 +54,28 @@ export class HUD extends Phaser.GameObjects.Container {
     this.add(this.highScoreText)
 
     // === Mute button (top-right, just below HI score) ===
-    // IMPORTANT: emoji glyphs require a font that supports them — 'monospace'
-    // does NOT include 🔊/🔇, so we use a sans-serif + emoji-font fallback.
-    this.muteBtn = this.scene.add.text(GAME_WIDTH - 8, 36, isMuted() ? '🔇' : '🔊', {
-      fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", Arial, sans-serif',
-      fontSize: '12px',
+    // Plain text + colored rectangle (no emoji, works in any font)
+    // ♪ U+266A is in basic monospace fonts. Toggle ♪ ↔ "—" for muted.
+    const btnX = GAME_WIDTH - 8
+    const btnY = 36
+    const btnW = 32
+    const btnH = 14
+    this.muteBg = this.scene.add.rectangle(btnX, btnY, btnW, btnH, 0x222222, 0.85)
+      .setOrigin(1, 0)
+      .setStrokeStyle(1, isMuted() ? 0x666666 : 0x2ecc71)
+    this.add(this.muteBg)
+    this.muteBtn = this.scene.add.text(btnX, btnY, isMuted() ? '—' : '♪', {
+      fontFamily: 'monospace',
+      fontSize: '11px',
+      color: isMuted() ? '#888888' : '#2ecc71',
     }).setOrigin(1, 0).setInteractive({ useHandCursor: true })
     this.muteBtn.on('pointerdown', (pointer, lx, ly, event) => {
-      event && event.stopPropagation && event.stopPropagation()
+      if (event && event.stopPropagation) event.stopPropagation()
       const next = !isMuted()
       setMuted(next)
-      this.muteBtn.setText(next ? '🔇' : '🔊')
-      // Play a tiny click feedback when un-muting
+      this.muteBtn.setText(next ? '—' : '♪')
+      this.muteBtn.setColor(next ? '#888888' : '#2ecc71')
+      this.muteBg.setStrokeStyle(1, next ? 0x666666 : 0x2ecc71)
       if (!next) sfx.play('menuSelect')
     })
     this.add(this.muteBtn)

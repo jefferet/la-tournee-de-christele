@@ -1,84 +1,114 @@
 /**
  * sfx.js — Procédural 8-bit sound effects via WebAudio API.
  *
- * No external assets — every sound is synthesized at runtime using
- * OscillatorNode (square / triangle) and BufferSource (noise) + GainNode
- * envelopes. This keeps the bundle tiny and the game offline-capable (PWA).
+ * ROBUST INIT STRATEGY:
+ *   1. AudioContext is created immediately on module load (in 'suspended' state)
+ *   2. Global window listeners (pointerdown/keydown/touchstart) trigger
+ *      resume() on the FIRST user interaction — this is the only moment
+ *      Chrome/Safari allow audio to start.
+ *   3. The event 'mavis-audio-ready' is dispatched when ctx.state === 'running'
+ *   4. music.js listens for this event and auto-starts
  *
  * Style: NES / GameBoy era (square waves, short durations, fast attacks).
  *
  * Usage:
- *   import { sfx, initAudioOnFirstGesture } from './sfx.js'
- *   initAudioOnFirstGesture()      // call once on game start
+ *   import { sfx } from './sfx.js'
  *   sfx.play('shoot')              // play a sound
- *   sfx.muted = true               // global mute
+ *   sfx.setMuted(true)             // global mute
  *
  * Audio events:
- *   - shoot         : pew descending square wave
- *   - dash          : whoosh rising noise burst
- *   - heal          : ascending 3-note arpeggio
- *   - hit           : low downward noise burst (took damage)
- *   - pickup        : 2-note ascending ding (CV collect)
- *   - patientHeal   : 3-note happy chime (patient healed)
- *   - gameOver      : 4-note descending sad melody
- *   - menuSelect    : single beep
+ *   - shoot, dash, heal, hit, pickup, patientHeal, gameOver, menuSelect
  */
 
 let _ctx = null
 let _master = null
 let _muted = false
+let _resumed = false
+let _initTried = false
 
 /**
- * Lazily create the AudioContext on the first user gesture.
- * Chrome/Safari require user interaction before audio can play.
- * Call this from scene.create() — it hooks Phaser's first input event.
- * Dispatches a 'mavis-audio-ready' window event once the context is ready,
- * so other modules (music.js) can auto-start.
+ * Initialize the AudioContext. Safe to call multiple times.
+ * On first call (no user gesture), ctx will be in 'suspended' state.
+ * The first user gesture triggers resume().
  */
-export function initAudioOnFirstGesture(scene) {
-  const tryInit = () => {
-    if (_ctx) {
-      // Already initialized — just make sure it's running
-      if (_ctx.state === 'suspended') {
-        _ctx.resume().catch(() => {})
-      }
+function _initContext() {
+  if (_ctx || _initTried) return
+  _initTried = true
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext
+    if (!AC) {
+      console.warn('[sfx] WebAudio not supported in this browser')
       return
     }
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext
-      if (!AC) {
-        console.warn('[sfx] WebAudio not supported')
-        return
-      }
-      _ctx = new AC()
-      _master = _ctx.createGain()
-      _master.gain.value = _muted ? 0 : 0.6
-      _master.connect(_ctx.destination)
-      console.log('[sfx] AudioContext ready, state:', _ctx.state)
-      // Notify other modules (music.js listens for this)
+    _ctx = new AC()
+    _master = _ctx.createGain()
+    _master.gain.value = _muted ? 0 : 0.6
+    _master.connect(_ctx.destination)
+    console.log('[sfx] AudioContext created, state:', _ctx.state)
+  } catch (e) {
+    console.warn('[sfx] AudioContext init failed:', e)
+  }
+}
+
+/**
+ * Try to resume the AudioContext. Must be called from a user gesture
+ * handler to succeed in Chrome/Safari.
+ */
+function _tryResume() {
+  if (!_ctx) _initContext()
+  if (!_ctx) return
+  if (_ctx.state === 'running') {
+    if (!_resumed) {
+      _resumed = true
+      console.log('[sfx] AudioContext already running')
       window.dispatchEvent(new CustomEvent('mavis-audio-ready'))
-    } catch (e) {
-      console.warn('[sfx] AudioContext init failed:', e)
     }
+    return
   }
+  _ctx.resume().then(() => {
+    _resumed = true
+    console.log('[sfx] AudioContext resumed, state:', _ctx.state)
+    window.dispatchEvent(new CustomEvent('mavis-audio-ready'))
+  }).catch(e => {
+    console.warn('[sfx] resume failed:', e)
+  })
+}
 
-  // Phaser emits a 'pointerdown' or 'keydown' on first user interaction.
-  // We hook both to be safe (covers touch + keyboard).
-  const onFirst = () => {
-    tryInit()
-    if (_ctx && _ctx.state === 'suspended') {
-      _ctx.resume().catch(() => {})
-    }
+// === Set up global user-gesture listeners IMMEDIATELY (module load) ===
+// This runs on first import of sfx.js, which happens when PatientLevelScene
+// or MenuScene is loaded. The listeners are attached to window/document,
+// so they survive scene transitions.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  const onGesture = () => {
+    console.log('[sfx] User gesture detected')
+    _tryResume()
   }
+  // Use multiple event types to cover all input methods
+  const events = ['pointerdown', 'mousedown', 'click', 'keydown', 'touchstart']
+  events.forEach(ev => {
+    document.addEventListener(ev, onGesture, { capture: true, passive: true })
+  })
+  console.log('[sfx] Global gesture listeners installed')
+}
 
-  if (scene && scene.input) {
-    scene.input.once('pointerdown', onFirst)
-    scene.input.keyboard.once('keydown', onFirst)
+// Try to create ctx immediately (will be suspended until user gesture)
+if (typeof window !== 'undefined') {
+  // Wait one tick so we don't block initial render
+  setTimeout(_initContext, 0)
+}
+
+/**
+ * Hook into a Phaser scene to also listen for scene.input events.
+ * This is in addition to the document-level listeners above (belt + suspenders).
+ */
+export function initAudioOnFirstGesture(scene) {
+  if (!scene || !scene.input) return
+  const onSceneInput = () => {
+    console.log('[sfx] Phaser scene input gesture')
+    _tryResume()
   }
-  // Also try on any document-level click (covers PWA edge cases)
-  document.addEventListener('pointerdown', onFirst, { once: true })
-  document.addEventListener('keydown', onFirst, { once: true })
-  document.addEventListener('touchstart', onFirst, { once: true, passive: true })
+  scene.input.once('pointerdown', onSceneInput)
+  scene.input.keyboard.once('keydown', onSceneInput)
 }
 
 /**
@@ -86,7 +116,9 @@ export function initAudioOnFirstGesture(scene) {
  */
 export function setMuted(muted) {
   _muted = !!muted
-  if (_master) _master.gain.value = _muted ? 0 : 0.6
+  if (_master) {
+    _master.gain.value = _muted ? 0 : 0.6
+  }
 }
 export function isMuted() {
   return _muted
@@ -97,9 +129,11 @@ export function isMuted() {
  * Returns null if audio hasn't been initialized yet.
  */
 export function getAudioContext() {
+  if (!_ctx) _initContext()
   return _ctx
 }
 export function getMasterGain() {
+  if (!_ctx) _initContext()
   return _master
 }
 
@@ -144,14 +178,12 @@ function _noise(duration, opts = {}) {
   const buffer = _ctx.createBuffer(1, bufferSize, _ctx.sampleRate)
   const data = buffer.getChannelData(0)
   for (let i = 0; i < bufferSize; i++) {
-    // Soft noise (less harsh than pure white)
     data[i] = (Math.random() * 2 - 1) * 0.5
   }
 
   const src = _ctx.createBufferSource()
   src.buffer = buffer
 
-  // Optional bandpass for a less hissy noise
   let last = src
   if (opts.bandpass) {
     const bp = _ctx.createBiquadFilter()
@@ -181,7 +213,6 @@ function _noteFreq(semitonesFromA4) {
   return 440 * Math.pow(2, semitonesFromA4 / 12)
 }
 
-// Convenient named frequencies (NES-style A major scale)
 const NOTE = {
   C3: _noteFreq(-24), D3: _noteFreq(-22), E3: _noteFreq(-20), F3: _noteFreq(-19),
   G3: _noteFreq(-17), A3: _noteFreq(-15), B3: _noteFreq(-13),
@@ -192,72 +223,44 @@ const NOTE = {
   C6: _noteFreq(12),
 }
 
-/**
- * High-level SFX — each function is a single discrete event.
- * Designed to be cheap (one oscillator at a time, < 500ms).
- */
 const _play = {
-  /** Pew descending square wave — syringe shot */
   shoot() {
     _osc('square', NOTE.C5, 0.12, {
-      freqEnd: NOTE.G3,
-      freqRamp: 0.10,
-      peak: 0.3,
-      sustainLevel: 0.05,
+      freqEnd: NOTE.G3, freqRamp: 0.10, peak: 0.3, sustainLevel: 0.05,
     })
   },
-
-  /** Whoosh — dash (rising noise burst, bandpassed) */
   dash() {
     _noise(0.18, { peak: 0.25, bandpass: true, bandpassFreq: 1500 })
-    // Subtle high tone sweep for snap
     _osc('square', NOTE.E4, 0.08, {
-      freqEnd: NOTE.A5,
-      freqRamp: 0.08,
-      peak: 0.15,
+      freqEnd: NOTE.A5, freqRamp: 0.08, peak: 0.15,
     })
   },
-
-  /** Ascending 3-note arpeggio (C-E-G) — heal */
   heal() {
     _osc('square', NOTE.C4, 0.10, { peak: 0.3 })
     setTimeout(() => _osc('square', NOTE.E4, 0.10, { peak: 0.3 }), 80)
     setTimeout(() => _osc('square', NOTE.G4, 0.18, { peak: 0.3 }), 160)
   },
-
-  /** Low noise burst with downward pitch — taking damage */
   hit() {
     _osc('square', NOTE.C3, 0.22, {
-      freqEnd: NOTE.A2,
-      freqRamp: 0.18,
-      peak: 0.4,
-      sustainLevel: 0.2,
+      freqEnd: NOTE.A2, freqRamp: 0.18, peak: 0.4, sustainLevel: 0.2,
     })
     _noise(0.15, { peak: 0.3, bandpass: true, bandpassFreq: 400 })
   },
-
-  /** 2-note ascending ding — Carte Vitale collected */
   pickup() {
     _osc('square', NOTE.E5, 0.08, { peak: 0.25 })
     setTimeout(() => _osc('square', NOTE.A5, 0.12, { peak: 0.25 }), 70)
   },
-
-  /** 3-note happy chime — patient healed */
   patientHeal() {
     _osc('square', NOTE.G4, 0.08, { peak: 0.28 })
     setTimeout(() => _osc('square', NOTE.B4, 0.08, { peak: 0.28 }), 70)
     setTimeout(() => _osc('square', NOTE.D5, 0.20, { peak: 0.28 }), 140)
   },
-
-  /** 4-note descending sad melody — game over */
   gameOver() {
     _osc('square', NOTE.C5, 0.18, { peak: 0.32 })
     setTimeout(() => _osc('square', NOTE.A4, 0.18, { peak: 0.32 }), 200)
     setTimeout(() => _osc('square', NOTE.F4, 0.18, { peak: 0.32 }), 400)
     setTimeout(() => _osc('square', NOTE.C4, 0.45, { peak: 0.4 }), 600)
   },
-
-  /** Single beep — menu select */
   menuSelect() {
     _osc('square', NOTE.E5, 0.08, { peak: 0.25 })
   },
@@ -265,7 +268,11 @@ const _play = {
 
 export const sfx = {
   play(name) {
-    if (!_ctx) return  // AudioContext not yet initialized
+    if (!_ctx) {
+      _initContext()
+      if (!_ctx) return
+    }
+    if (_ctx.state === 'suspended') _tryResume()
     if (_muted) return
     const fn = _play[name]
     if (fn) fn()
@@ -273,4 +280,6 @@ export const sfx = {
   },
   setMuted,
   isMuted,
+  getAudioContext,
+  getMasterGain,
 }
