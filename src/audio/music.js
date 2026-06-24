@@ -46,6 +46,8 @@ let _currentSource = null      // AudioBufferSourceNode or null
 let _isPlaying = false
 let _pendingStart = false
 let _loopTimeoutId = null      // for procedural track scheduling
+let _generation = 0            // bumped on every track switch — cancels
+                              // in-flight async startMusic() calls
 
 // === Persisted track choice ===
 try {
@@ -193,19 +195,26 @@ export function getAvailableTracks() {
 /**
  * Switch to a different track. Stops current playback, loads new track,
  * optionally restarts playback if it was playing. Persists choice.
+ *
+ * IMPORTANT: uses a generation counter to cancel any in-flight startMusic()
+ * calls. This prevents the "multiple tracks playing simultaneously" bug
+ * that happens when the user clicks rapidly through tracks.
  */
 export async function setTrack(trackId) {
   if (!TRACKS[trackId]) {
     console.warn('[music] unknown track:', trackId)
     return
   }
+  // Bump generation BEFORE stopping so any pending startMusic() from the
+  // previous track aborts cleanly after its current await resumes.
+  const gen = ++_generation
   const wasPlaying = _isPlaying
   stopMusic()
   _currentTrackId = trackId
   _currentBuffer = null
   try { localStorage.setItem('christele-track', trackId) } catch (_) {}
-  console.log('[music] Track →', trackId)
-  if (wasPlaying) await startMusic()
+  console.log('[music] Track →', trackId, '(gen', gen + ')')
+  if (wasPlaying) await startMusic(gen)
 }
 
 /**
@@ -222,8 +231,11 @@ export async function cycleTrack() {
 /**
  * Start playing the current track. No-op if already playing.
  * If audio isn't ready yet, queues start (auto-fires on 'mavis-audio-ready').
+ *
+ * The `generation` parameter is used to cancel this call if the user
+ * switched to another track while we were still loading.
  */
-export async function startMusic() {
+export async function startMusic(generation = _generation) {
   if (_isPlaying) return
   const ctx = getAudioContext()
   if (!ctx) {
@@ -244,7 +256,18 @@ export async function startMusic() {
       if (!_currentBuffer) {
         console.log('[music] Loading MP3:', track.url)
         _currentBuffer = await _loadMp3(track.url)
+        // After the await, check if we're still the current operation.
+        // If the user switched tracks during the decode, abort.
+        if (generation !== _generation) {
+          console.log('[music] Aborting MP3 start, generation changed (',
+            generation, 'vs', _generation, ')')
+          _currentBuffer = null  // don't cache an obsolete buffer
+          return
+        }
       }
+      // Double-check after the await — _isPlaying might have been set
+      // by a newer operation.
+      if (generation !== _generation || _isPlaying) return
       const src = ctx.createBufferSource()
       src.buffer = _currentBuffer
       src.loop = true
@@ -253,15 +276,16 @@ export async function startMusic() {
       _currentSource = src
       _isPlaying = true
       console.log('[music] Started', _currentTrackId, 'MP3, looping (',
-        _currentBuffer.duration.toFixed(1), 's)')
+        _currentBuffer.duration.toFixed(1), 's, gen', generation + ')')
     } catch (e) {
       console.warn('[music] Failed to start MP3 track:', e)
     }
   } else {
-    // Procedural chiptune
+    // Procedural chiptune — synchronous, no race
+    if (generation !== _generation) return
     _isPlaying = true
     console.log('[music] Started procedural chiptune, loop:',
-      _loopDurationSec.toFixed(1), 's')
+      _loopDurationSec.toFixed(1), 's, gen', generation + ')')
     _scheduleNextLoop(ctx, master)
   }
 }
