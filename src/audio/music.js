@@ -1,30 +1,62 @@
 /**
- * music.js — Procedural chiptune background music loop.
+ * music.js — Background music player.
  *
- * Shares the WebAudio context + master gain with sfx.js for unified
- * mute control. Three voices:
+ * Supports two track kinds:
+ *   - 'mp3'      : file loaded via fetch + decodeAudioData, looped
+ *   - 'procedural': synthesized via WebAudio oscillators (see original
+ *                   chiptune implementation)
  *
- *   Channel 0 — Bass (triangle wave, low octave)
- *   Channel 1 — Lead melody (square wave, mid octave)
- *   Channel 2 — Kick drum (low sine pulse on each beat)
- *
- * Style: NES-era chiptune (Megaman / Castlevania vibes), A minor,
- * 110 BPM. Loop length ≈ 52 seconds. Designed to feel "heroic nurse
- * running between patients".
+ * Track registry:
+ *   - 'venus'    : MP3 file (SketchyLogic, NES Shooter Music, CC0)
+ *   - 'chiptune' : procedural chiptune (no asset)
  *
  * Architecture:
- *   - Pattern is a static array of [tick, semitones, duration_ticks, channel]
- *   - Each loop iteration, all notes are scheduled ahead of time
- *   - Re-scheduled 500ms before loop end to avoid gaps
- *   - Music ducks (quieter) during game over dialog via setMusicVolume()
+ *   - getAudioContext() and getMasterGain() are shared with sfx.js
+ *   - 'mavis-audio-ready' event triggers queued startMusic()
+ *   - setTrack(id) switches current track (stops, preloads, restarts)
+ *   - Track choice persists in localStorage 'christele-track'
+ *
+ * Usage:
+ *   import { startMusic, setTrack, getCurrentTrack } from './music.js'
+ *   setTrack('venus')      // switch to Venus MP3
+ *   startMusic()           // start playing current track
  */
 
 import { getAudioContext, getMasterGain, isMuted } from './sfx.js'
 
-const BPM = 110
-const SIXTEENTH = 60 / BPM / 4  // seconds per 16th note
+// === Track registry ===
+const TRACKS = {
+  venus: {
+    name: 'Venus',
+    shortLabel: 'V',
+    kind: 'mp3',
+    url: '/audio/music/venus.mp3',
+  },
+  chiptune: {
+    name: 'Chiptune procédural',
+    shortLabel: '♪',
+    kind: 'procedural',
+  },
+}
 
-// Note frequencies (semitones from A4 = 440Hz, 12-tone equal temperament)
+// === State ===
+let _currentTrackId = 'venus'  // default after Jef added Venus MP3
+let _currentBuffer = null      // AudioBuffer for MP3 tracks
+let _currentSource = null      // AudioBufferSourceNode or null
+let _isPlaying = false
+let _pendingStart = false
+let _loopTimeoutId = null      // for procedural track scheduling
+
+// === Persisted track choice ===
+try {
+  const saved = localStorage.getItem('christele-track')
+  if (saved && TRACKS[saved]) _currentTrackId = saved
+} catch (_) {}
+
+// === Procedural chiptune pattern (La mineur, 110 BPM, 24 bars) ===
+const BPM = 110
+const SIXTEENTH = 60 / BPM / 4
+
 const N = {
   C2: -36, D2: -34, E2: -32, F2: -31, G2: -29, A2: -27, B2: -25,
   C3: -24, D3: -22, E3: -20, F3: -19, G3: -17, A3: -15, B3: -13,
@@ -34,196 +66,65 @@ const N = {
   REST: null,
 }
 
-// === PATTERN ===
-// Loop = 4 phrases × 8 bars = 32 bars = 128 sixteenths = 2048 ticks/16
-// Wait no: 1 bar = 16 sixteenths. So 32 bars = 512 sixteenths.
-// At 110 BPM: 512 × (60/110/4) = 512 × 0.1364 = 69.8 seconds. Too long.
-// Let me do 24 bars: 24 × 16 = 384 ticks → 384 × 0.1364 = 52.4 seconds. 
-//
-// Chord progression repeats every 4 bars: | Am | F | C | G |
-// 24 bars = 6 repetitions of the 4-bar progression.
+const PATTERN_LENGTH_TICKS = 384
 
-const PATTERN_LENGTH_TICKS = 384  // 24 bars
-
-// Each entry: [tick, semitone, duration_ticks, channel]
-// Channels: 0=bass, 1=lead, 2=kick
 const PATTERN = [
-  // ============ BASS LINE (one root per bar, 24 bars) ============
-  // 6 × (Am F C G) progression. Bar numbers in comments for clarity.
-  // Bar 1 (Am):  A2
-  // Bar 2 (Am):  A2
-  // Bar 3 (F):   F2
-  // Bar 4 (F):   F2
-  // Bar 5 (C):   C3
-  // Bar 6 (C):   C3
-  // Bar 7 (G):   G2
-  // Bar 8 (G):   G2
-  // ...repeats 6 times total (24 bars)
-  [0,   N.A2, 16, 0],
-  [16,  N.A2, 16, 0],
-  [32,  N.F2, 16, 0],
-  [48,  N.F2, 16, 0],
-  [64,  N.C3, 16, 0],
-  [80,  N.C3, 16, 0],
-  [96,  N.G2, 16, 0],
-  [112, N.G2, 16, 0],
-  [128, N.A2, 16, 0],
-  [144, N.A2, 16, 0],
-  [160, N.F2, 16, 0],
-  [176, N.F2, 16, 0],
-  [192, N.C3, 16, 0],
-  [208, N.C3, 16, 0],
-  [224, N.G2, 16, 0],
-  [240, N.G2, 16, 0],
-  [256, N.A2, 16, 0],
-  [272, N.A2, 16, 0],
-  [288, N.F2, 16, 0],
-  [304, N.F2, 16, 0],
-  [320, N.C3, 16, 0],
-  [336, N.C3, 16, 0],
-  [352, N.G2, 16, 0],
-  [368, N.G2, 16, 0],
-
-  // ============ LEAD MELODY ============
-  // Phrase 1 (Am, bars 1-2): ascending line, calmer
-  [0,   N.E4, 4, 1],
-  [4,   N.G4, 4, 1],
-  [8,   N.A4, 4, 1],
-  [12,  N.C5, 4, 1],
-  [16,  N.B4, 4, 1],
-  [20,  N.A4, 4, 1],
-  [24,  N.G4, 4, 1],
-  [28,  N.E4, 4, 1],
-
-  // Phrase 2 (F, bars 3-4): a higher, more flowing line
-  [32,  N.A4, 4, 1],
-  [36,  N.C5, 4, 1],
-  [40,  N.F5, 8, 1],
-  [48,  N.E5, 4, 1],
-  [52,  N.D5, 4, 1],
-  [56,  N.C5, 8, 1],
-
-  // Phrase 3 (C, bars 5-6): descending with a hop
-  [64,  N.E5, 4, 1],
-  [68,  N.D5, 4, 1],
-  [72,  N.C5, 4, 1],
-  [76,  N.B4, 4, 1],
-  [80,  N.A4, 4, 1],
-  [84,  N.G4, 4, 1],
-  [88,  N.E4, 4, 1],
-  [92,  N.G4, 4, 1],
-
-  // Phrase 4 (G, bars 7-8): bright resolution up to A
-  [96,  N.D5, 4, 1],
-  [100, N.B4, 4, 1],
-  [104, N.G4, 4, 1],
-  [108, N.D5, 4, 1],
-  [112, N.E5, 8, 1],
-  [120, N.A4, 8, 1],
-
-  // === SECOND ROUND (varied) ===
-
-  // Phrase 5 (Am): different rhythm, syncopated
-  [128, N.A4, 4, 1],
-  [132, N.E4, 2, 1],
-  [134, N.G4, 2, 1],
-  [136, N.A4, 4, 1],
-  [140, N.C5, 4, 1],
-  [144, N.E5, 4, 1],
-  [148, N.D5, 4, 1],
-  [152, N.C5, 4, 1],
-  [156, N.B4, 4, 1],
-  [160, N.A4, 4, 1],
-
-  // Phrase 6 (F): climax going up high
-  [160, N.F5, 4, 1],
-  [164, N.E5, 4, 1],
-  [168, N.D5, 4, 1],
-  [172, N.C5, 4, 1],
-  [176, N.A4, 4, 1],
-  [180, N.C5, 4, 1],
-  [184, N.F5, 4, 1],
-  [188, N.A5, 8, 1],
-
-  // Phrase 7 (C): descending back down
-  [192, N.G5, 4, 1],
-  [196, N.E5, 4, 1],
-  [200, N.D5, 4, 1],
-  [204, N.C5, 4, 1],
-  [208, N.B4, 4, 1],
-  [212, N.A4, 4, 1],
-  [216, N.G4, 4, 1],
-  [220, N.E4, 4, 1],
-
-  // Phrase 8 (G): resolve back to A
-  [224, N.D5, 4, 1],
-  [228, N.G4, 4, 1],
-  [232, N.B4, 4, 1],
-  [236, N.D5, 4, 1],
-  [240, N.G5, 8, 1],
-  [248, N.A4, 8, 1],
-
-  // === THIRD ROUND (variation, more variation) ===
-
-  // Phrase 9 (Am): quick 8th notes, busy
+  // Bass
+  [0,   N.A2, 16, 0], [16,  N.A2, 16, 0], [32,  N.F2, 16, 0], [48,  N.F2, 16, 0],
+  [64,  N.C3, 16, 0], [80,  N.C3, 16, 0], [96,  N.G2, 16, 0], [112, N.G2, 16, 0],
+  [128, N.A2, 16, 0], [144, N.A2, 16, 0], [160, N.F2, 16, 0], [176, N.F2, 16, 0],
+  [192, N.C3, 16, 0], [208, N.C3, 16, 0], [224, N.G2, 16, 0], [240, N.G2, 16, 0],
+  [256, N.A2, 16, 0], [272, N.A2, 16, 0], [288, N.F2, 16, 0], [304, N.F2, 16, 0],
+  [320, N.C3, 16, 0], [336, N.C3, 16, 0], [352, N.G2, 16, 0], [368, N.G2, 16, 0],
+  // Lead
+  [0, N.E4, 4, 1], [4, N.G4, 4, 1], [8, N.A4, 4, 1], [12, N.C5, 4, 1],
+  [16, N.B4, 4, 1], [20, N.A4, 4, 1], [24, N.G4, 4, 1], [28, N.E4, 4, 1],
+  [32, N.A4, 4, 1], [36, N.C5, 4, 1], [40, N.F5, 8, 1], [48, N.E5, 4, 1],
+  [52, N.D5, 4, 1], [56, N.C5, 8, 1],
+  [64, N.E5, 4, 1], [68, N.D5, 4, 1], [72, N.C5, 4, 1], [76, N.B4, 4, 1],
+  [80, N.A4, 4, 1], [84, N.G4, 4, 1], [88, N.E4, 4, 1], [92, N.G4, 4, 1],
+  [96, N.D5, 4, 1], [100, N.B4, 4, 1], [104, N.G4, 4, 1], [108, N.D5, 4, 1],
+  [112, N.E5, 8, 1], [120, N.A4, 8, 1],
+  [128, N.A4, 4, 1], [132, N.E4, 2, 1], [134, N.G4, 2, 1], [136, N.A4, 4, 1],
+  [140, N.C5, 4, 1], [144, N.E5, 4, 1], [148, N.D5, 4, 1], [152, N.C5, 4, 1],
+  [156, N.B4, 4, 1], [160, N.A4, 4, 1],
+  [160, N.F5, 4, 1], [164, N.E5, 4, 1], [168, N.D5, 4, 1], [172, N.C5, 4, 1],
+  [176, N.A4, 4, 1], [180, N.C5, 4, 1], [184, N.F5, 4, 1], [188, N.A5, 8, 1],
+  [192, N.G5, 4, 1], [196, N.E5, 4, 1], [200, N.D5, 4, 1], [204, N.C5, 4, 1],
+  [208, N.B4, 4, 1], [212, N.A4, 4, 1], [216, N.G4, 4, 1], [220, N.E4, 4, 1],
+  [224, N.D5, 4, 1], [228, N.G4, 4, 1], [232, N.B4, 4, 1], [236, N.D5, 4, 1],
+  [240, N.G5, 8, 1], [248, N.A4, 8, 1],
   [256, N.E4, 2, 1], [258, N.G4, 2, 1], [260, N.A4, 2, 1], [262, N.C5, 2, 1],
-  [264, N.E5, 4, 1],
-  [268, N.D5, 4, 1],
-  [272, N.C5, 4, 1],
-  [276, N.E5, 4, 1],
-  [280, N.A4, 4, 1],
-  [284, N.B4, 4, 1],
-
-  // Phrase 10 (F): arpeggio feel
+  [264, N.E5, 4, 1], [268, N.D5, 4, 1], [272, N.C5, 4, 1], [276, N.E5, 4, 1],
+  [280, N.A4, 4, 1], [284, N.B4, 4, 1],
   [288, N.A4, 2, 1], [290, N.C5, 2, 1], [292, N.F5, 2, 1], [294, N.A5, 2, 1],
-  [296, N.F5, 4, 1],
-  [300, N.E5, 4, 1],
-  [304, N.D5, 4, 1],
-  [308, N.C5, 4, 1],
-  [312, N.A4, 4, 1],
-  [316, N.C5, 4, 1],
-
-  // Phrase 11 (C): stately
-  [320, N.E5, 4, 1],
-  [324, N.G4, 4, 1],
-  [328, N.E5, 4, 1],
-  [332, N.G4, 4, 1],
-  [336, N.C5, 8, 1],
-  [344, N.E5, 8, 1],
-
-  // Phrase 12 (G): wind down to A
-  [352, N.D5, 4, 1],
-  [356, N.B4, 4, 1],
-  [360, N.G4, 4, 1],
-  [364, N.D5, 4, 1],
-  [368, N.A4, 8, 1],
-  [376, N.E4, 8, 1],
+  [296, N.F5, 4, 1], [300, N.E5, 4, 1], [304, N.D5, 4, 1], [308, N.C5, 4, 1],
+  [312, N.A4, 4, 1], [316, N.C5, 4, 1],
+  [320, N.E5, 4, 1], [324, N.G4, 4, 1], [328, N.E5, 4, 1], [332, N.G4, 4, 1],
+  [336, N.C5, 8, 1], [344, N.E5, 8, 1],
+  [352, N.D5, 4, 1], [356, N.B4, 4, 1], [360, N.G4, 4, 1], [364, N.D5, 4, 1],
+  [368, N.A4, 8, 1], [376, N.E4, 8, 1],
 ]
 
-// Build kick pattern: kick on beats 1 and 3 of every bar (24 bars)
 const KICK_PATTERN = []
 for (let bar = 0; bar < 24; bar++) {
-  KICK_PATTERN.push([bar * 16 + 0,  N.A2, 1, 2])  // beat 1
-  KICK_PATTERN.push([bar * 16 + 8,  N.A2, 1, 2])  // beat 3
+  KICK_PATTERN.push([bar * 16 + 0,  N.A2, 1, 2])
+  KICK_PATTERN.push([bar * 16 + 8,  N.A2, 1, 2])
 }
 
-const FULL_PATTERN = [...PATTERN, ...KICK_PATTERN]  
+const FULL_PATTERN = [...PATTERN, ...KICK_PATTERN]
 
+// === Audio helpers ===
 function _freq(semitones) {
   return 440 * Math.pow(2, semitones / 12)
 }
 
-function _scheduleNote(time, semitones, duration, channel) {
-  const ctx = getAudioContext()
-  const master = getMasterGain()
-  if (!ctx || !master) return
-  if (semitones === null) return  // rest
-
+function _scheduleNote(ctx, master, time, semitones, duration, channel) {
+  if (semitones === null) return
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
 
   if (channel === 2) {
-    // Kick: low sine pulse with quick pitch sweep
     osc.type = 'sine'
     osc.frequency.setValueAtTime(120, time)
     osc.frequency.exponentialRampToValueAtTime(40, time + 0.08)
@@ -231,7 +132,6 @@ function _scheduleNote(time, semitones, duration, channel) {
     gain.gain.linearRampToValueAtTime(0.40, time + 0.005)
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12)
   } else if (channel === 0) {
-    // Bass: triangle, deep and round
     osc.type = 'triangle'
     osc.frequency.value = _freq(semitones)
     gain.gain.setValueAtTime(0, time)
@@ -239,7 +139,6 @@ function _scheduleNote(time, semitones, duration, channel) {
     gain.gain.setValueAtTime(0.18, time + duration * SIXTEENTH * 0.4)
     gain.gain.linearRampToValueAtTime(0, time + duration * SIXTEENTH)
   } else {
-    // Lead: square, brighter
     osc.type = 'square'
     osc.frequency.value = _freq(semitones)
     gain.gain.setValueAtTime(0, time)
@@ -254,68 +153,141 @@ function _scheduleNote(time, semitones, duration, channel) {
   osc.stop(time + duration * SIXTEENTH + 0.05)
 }
 
-let _isPlaying = false
-let _timeoutId = null
-let _musicVolume = 1.0  // 0..1, for ducking during game over
-let _pendingStart = false  // set true by startMusic() if AudioContext not ready yet
+const _loopDurationSec = PATTERN_LENGTH_TICKS * SIXTEENTH
 
-const _loopDurationSec = PATTERN_LENGTH_TICKS * SIXTEENTH  // ~52.4s
-
-function _scheduleNextLoop() {
+function _scheduleNextLoop(ctx, master) {
   if (!_isPlaying) return
-  const ctx = getAudioContext()
-  if (!ctx) return
-
   const startTime = ctx.currentTime + 0.05
   for (const [tick, semitones, duration, channel] of FULL_PATTERN) {
-    _scheduleNote(startTime + tick * SIXTEENTH, semitones, duration, channel)
+    _scheduleNote(ctx, master, startTime + tick * SIXTEENTH, semitones, duration, channel)
   }
-
-  // Schedule the next loop iteration 200ms before the current one ends
-  const delayMs = (_loopDurationSec - 0.2) * 1000
-  _timeoutId = setTimeout(_scheduleNextLoop, delayMs)
+  _loopTimeoutId = setTimeout(() => _scheduleNextLoop(ctx, master), (_loopDurationSec - 0.2) * 1000)
 }
 
-export function startMusic() {
+// === MP3 loading ===
+async function _loadMp3(url) {
+  const ctx = getAudioContext()
+  if (!ctx) throw new Error('AudioContext not ready')
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`HTTP ${response.status} loading ${url}`)
+  const arrayBuffer = await response.arrayBuffer()
+  return await ctx.decodeAudioData(arrayBuffer)
+}
+
+// === Public API ===
+
+/**
+ * Get the current track ID.
+ */
+export function getCurrentTrack() {
+  return _currentTrackId
+}
+
+/**
+ * Get list of available tracks for UI iteration.
+ */
+export function getAvailableTracks() {
+  return Object.entries(TRACKS).map(([id, t]) => ({ id, ...t }))
+}
+
+/**
+ * Switch to a different track. Stops current playback, loads new track,
+ * optionally restarts playback if it was playing. Persists choice.
+ */
+export async function setTrack(trackId) {
+  if (!TRACKS[trackId]) {
+    console.warn('[music] unknown track:', trackId)
+    return
+  }
+  const wasPlaying = _isPlaying
+  stopMusic()
+  _currentTrackId = trackId
+  _currentBuffer = null
+  try { localStorage.setItem('christele-track', trackId) } catch (_) {}
+  console.log('[music] Track →', trackId)
+  if (wasPlaying) await startMusic()
+}
+
+/**
+ * Cycle to the next track (helper for the HUD button).
+ */
+export async function cycleTrack() {
+  const ids = Object.keys(TRACKS)
+  const idx = ids.indexOf(_currentTrackId)
+  const next = ids[(idx + 1) % ids.length]
+  await setTrack(next)
+  return next
+}
+
+/**
+ * Start playing the current track. No-op if already playing.
+ * If audio isn't ready yet, queues start (auto-fires on 'mavis-audio-ready').
+ */
+export async function startMusic() {
   if (_isPlaying) return
-  if (!getAudioContext()) {
-    // Audio not ready yet — queue start, will fire on 'mavis-audio-ready'
+  const ctx = getAudioContext()
+  if (!ctx) {
     _pendingStart = true
     console.log('[music] Audio not ready, queued')
     return
   }
+  const master = getMasterGain()
+  if (!master) return
+
+  const track = TRACKS[_currentTrackId]
+  if (!track) return
+
   _pendingStart = false
-  _isPlaying = true
-  console.log('[music] Start (loop:', _loopDurationSec.toFixed(1), 's, notes:', FULL_PATTERN.length, ')')
-  _scheduleNextLoop()
+
+  if (track.kind === 'mp3') {
+    try {
+      if (!_currentBuffer) {
+        console.log('[music] Loading MP3:', track.url)
+        _currentBuffer = await _loadMp3(track.url)
+      }
+      const src = ctx.createBufferSource()
+      src.buffer = _currentBuffer
+      src.loop = true
+      src.connect(master)
+      src.start()
+      _currentSource = src
+      _isPlaying = true
+      console.log('[music] Started', _currentTrackId, 'MP3, looping (',
+        _currentBuffer.duration.toFixed(1), 's)')
+    } catch (e) {
+      console.warn('[music] Failed to start MP3 track:', e)
+    }
+  } else {
+    // Procedural chiptune
+    _isPlaying = true
+    console.log('[music] Started procedural chiptune, loop:',
+      _loopDurationSec.toFixed(1), 's')
+    _scheduleNextLoop(ctx, master)
+  }
 }
 
+/**
+ * Stop playback. Safe to call when not playing.
+ */
 export function stopMusic() {
-  if (!_isPlaying) return
+  if (!_isPlaying && !_pendingStart) return
   _isPlaying = false
   _pendingStart = false
-  if (_timeoutId) {
-    clearTimeout(_timeoutId)
-    _timeoutId = null
+  if (_currentSource) {
+    try { _currentSource.stop() } catch (_) {}
+    _currentSource = null
   }
-  console.log('[music] Stop')
+  if (_loopTimeoutId) {
+    clearTimeout(_loopTimeoutId)
+    _loopTimeoutId = null
+  }
 }
 
 export function isMusicPlaying() {
   return _isPlaying
 }
 
-/**
- * Duck the music volume (for game over dialog, etc.).
- * 1.0 = full volume, 0.3 = quiet background.
- */
-export function setMusicVolume(vol) {
-  _musicVolume = Math.max(0, Math.min(1, vol))
-  // Future: route through per-channel gain nodes
-}
-
 // Auto-start when sfx.js finishes initializing the AudioContext.
-// sfx.js dispatches 'mavis-audio-ready' on window when ready.
 window.addEventListener('mavis-audio-ready', () => {
   if (_pendingStart) {
     console.log('[music] Audio ready, starting queued music')

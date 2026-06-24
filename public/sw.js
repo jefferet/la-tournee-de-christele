@@ -7,7 +7,7 @@
  *   - This lets the game work offline once loaded
  */
 
-const CACHE_NAME = 'christele-v1'
+const CACHE_NAME = 'christele-v2'
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -15,7 +15,8 @@ const APP_SHELL = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
-]
+  '/audio/music/venus.mp3',
+]  
 
 // Install: cache app shell
 self.addEventListener('install', (event) => {

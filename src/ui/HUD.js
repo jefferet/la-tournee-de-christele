@@ -1,7 +1,8 @@
 import Phaser from 'phaser'
 import { GAME_WIDTH, GAME_HEIGHT, COLORS, CHRISTELE } from '../config/constants.js'
 import { state } from '../utils/stateManager.js'
-import { sfx, isMuted, setMuted } from '../audio/sfx.js'
+import { sfx, isMuted, setMuted, setMasterVolumeScale } from '../audio/sfx.js'
+import { getCurrentTrack, cycleTrack, getAvailableTracks } from '../audio/music.js'
 import { VolumeSlider } from './VolumeSlider.js'
 
 /**
@@ -92,6 +93,36 @@ export class HUD extends Phaser.GameObjects.Container {
     this._applyVolumeToMaster()
     this.volumeSlider.on('change', (v) => this._applyVolumeToMaster())
 
+    // === Track selector button (just left of volume slider) ===
+    // Cycles between available music tracks. Shows current track short label.
+    const trackBtnW = 28
+    const trackBtnX = sliderX - sliderW - 8  // 8px gap from slider
+    this._refreshTrackButton()
+    this.trackBg = this.scene.add.rectangle(trackBtnX, btnY, trackBtnW, btnH, 0x222222, 0.85)
+      .setOrigin(1, 0)
+      .setStrokeStyle(1, 0x3498db)
+    this.add(this.trackBg)
+    this.trackBtn = this.scene.add.text(trackBtnX, btnY, this._trackShortLabel(), {
+      fontFamily: 'monospace',
+      fontSize: '11px',
+      color: '#3498db',
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true })
+    this.trackBtn.on('pointerdown', (pointer, lx, ly, event) => {
+      if (event && event.stopPropagation) event.stopPropagation()
+      this._onCycleTrack()
+    })
+    this.add(this.trackBtn)
+
+    // Tooltip showing track full name (appears briefly when cycling)
+    this.trackTooltip = this.scene.add.text(trackBtnX, btnY + btnH + 2, '', {
+      fontFamily: 'monospace',
+      fontSize: '8px',
+      color: '#ffffff',
+      backgroundColor: '#000000',
+      padding: { x: 3, y: 2 },
+    }).setOrigin(1, 0).setVisible(false)
+    this.add(this.trackTooltip)
+
     // === Dash cooldown (bottom-center) ===
     this.dashBarBg = this.scene.add.graphics()
     this.dashBarBg.fillStyle(0x222222, 0.8)
@@ -142,6 +173,50 @@ export class HUD extends Phaser.GameObjects.Container {
   _applyVolumeToMaster() {
     const v = this.volumeSlider ? this.volumeSlider.value : 0.5
     setMasterVolumeScale(v)
+  }
+
+  /**
+   * Get the short label (1-2 chars) for the current music track.
+   */
+  _trackShortLabel() {
+    const tracks = getAvailableTracks()
+    const current = tracks.find(t => t.id === getCurrentTrack())
+    return current ? current.shortLabel : '?'
+  }
+
+  /**
+   * Get the full name for the current music track.
+   */
+  _trackFullName() {
+    const tracks = getAvailableTracks()
+    const current = tracks.find(t => t.id === getCurrentTrack())
+    return current ? current.name : 'Inconnu'
+  }
+
+  /**
+   * Refresh the track button text (called on cycle).
+   */
+  _refreshTrackButton() {
+    if (!this.trackBtn) return
+    this.trackBtn.setText(this._trackShortLabel())
+  }
+
+  /**
+   * Handle click on track button — cycle to next track.
+   */
+  _onCycleTrack() {
+    cycleTrack().then((newId) => {
+      this._refreshTrackButton()
+      // Show tooltip with full track name briefly
+      this.trackTooltip.setText(this._trackFullName())
+      this.trackTooltip.setVisible(true)
+      if (this._tooltipTimer) clearTimeout(this._tooltipTimer)
+      this._tooltipTimer = setTimeout(() => {
+        this.trackTooltip.setVisible(false)
+      }, 1500)
+      // Play a tiny click feedback
+      sfx.play('menuSelect')
+    })
   }
 
   update() {
