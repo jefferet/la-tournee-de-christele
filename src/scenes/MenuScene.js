@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { SCENES, GAME_WIDTH, GAME_HEIGHT, COLORS } from '../config/constants.js'
+import { sfx, initAudioOnFirstGesture } from '../audio/sfx.js'
 
 /**
  * Menu scene — title screen.
@@ -16,6 +17,9 @@ export class MenuScene extends Phaser.Scene {
     console.log('[MenuScene] Menu shown.')
 
     this.cameras.main.setBackgroundColor(COLORS.BACKGROUND)
+
+    // Init audio on first user gesture (covers the JOUER button click)
+    initAudioOnFirstGesture(this)
 
     // === Title ===
     const title = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, 'LA TOURNÉE DE CHRISTELE', {
@@ -50,11 +54,12 @@ export class MenuScene extends Phaser.Scene {
     startText.on('pointerdown', () => {
       // eslint-disable-next-line no-console
       console.log('[MenuScene] JOUER clicked — launching PatientLevelScene.')
+      sfx.play('menuSelect')
       this.scene.start(SCENES.PATIENT, { levelId: 'patient-1' })
     })
 
-    // === Footer (version / sprint) ===
-    const footer = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 12, 'v0.1.0 — Sprint 0 (init)', {
+    // === Footer (version) ===
+    const footer = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 12, 'v1.8 — 8-bit SFX', {
       fontFamily: 'monospace',
       fontSize: '8px',
       color: COLORS.GRAY,

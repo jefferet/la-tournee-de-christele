@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_WIDTH, GAME_HEIGHT, CHRISTELE } from '../config/constants.js'
 import { state } from '../utils/stateManager.js'
+import { sfx } from '../audio/sfx.js'
 
 /**
  * Christèle — the player character (extends Sprite for native Arcade Physics support).
@@ -216,6 +217,7 @@ export class Christele extends Phaser.GameObjects.Sprite {
     this.lastDashAt = now
     this.isDashing = true
     this.dashTime = CHRISTELE.DASH_DURATION
+    sfx.play('dash')
 
     let dx = this.moveVec.x
     let dy = this.moveVec.y
@@ -297,6 +299,7 @@ export class Christele extends Phaser.GameObjects.Sprite {
     if (this.hp >= this.maxHp) return
     this.lastHealAt = now
     this.hp = Math.min(this.maxHp, this.hp + Math.ceil(this.maxHp * CHRISTELE.HEAL_AMOUNT))
+    sfx.play('heal')
   }
 
   _updateAnimation(time, delta) {
@@ -324,8 +327,10 @@ export class Christele extends Phaser.GameObjects.Sprite {
     if (state.isInvincible) return
     this.hp -= amount
     if (this.hp <= 0) {
+      sfx.play('hit')
       this._die()
     } else {
+      sfx.play('hit')
       this.scene.tweens.add({
         targets: this,
         alpha: 0.3,

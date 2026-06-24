@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_WIDTH, GAME_HEIGHT, COLORS, CHRISTELE } from '../config/constants.js'
 import { state } from '../utils/stateManager.js'
+import { sfx, isMuted, setMuted } from '../audio/sfx.js'
 
 /**
  * HUD — heads-up display.
@@ -51,6 +52,21 @@ export class HUD extends Phaser.GameObjects.Container {
       align: 'right',
     }).setOrigin(1, 0)
     this.add(this.highScoreText)
+
+    // === Mute button (top-right, just below HI score) ===
+    this.muteBtn = this.scene.add.text(GAME_WIDTH - 8, 36, isMuted() ? '🔇' : '🔊', {
+      fontFamily: 'monospace',
+      fontSize: '12px',
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true })
+    this.muteBtn.on('pointerdown', (pointer, lx, ly, event) => {
+      event && event.stopPropagation && event.stopPropagation()
+      const next = !isMuted()
+      setMuted(next)
+      this.muteBtn.setText(next ? '🔇' : '🔊')
+      // Play a tiny click feedback when un-muting
+      if (!next) sfx.play('menuSelect')
+    })
+    this.add(this.muteBtn)
 
     // === Dash cooldown (bottom-center) ===
     this.dashBarBg = this.scene.add.graphics()

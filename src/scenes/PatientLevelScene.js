@@ -8,6 +8,7 @@ import { TouchControls } from '../ui/TouchControls.js'
 import { Indus } from '../entities/enemies/Indus.js'
 import { Patient } from '../entities/enemies/Patient.js'
 import { CarteVitale } from '../entities/CarteVitale.js'
+import { sfx, initAudioOnFirstGesture } from '../audio/sfx.js'
 
 /**
  * Axis-Aligned Bounding Box overlap test.
@@ -39,6 +40,9 @@ export class PatientLevelScene extends Phaser.Scene {
     console.log('[PatientLevelScene] Start mini-game')
     state.reset()
     state.lives = INITIAL_LIVES
+
+    // === Init 8-bit audio (lazy, on first user gesture) ===
+    initAudioOnFirstGesture(this)
 
     // Containers for the 3 entity types
     this.indus = []                // Falling indus (avoid)
@@ -129,6 +133,7 @@ export class PatientLevelScene extends Phaser.Scene {
   fireSyringe(x, y, dirX, dirY) {
     const s = new Syringe(this, x, y, dirX, dirY)
     this.projectiles.add(s, true)
+    sfx.play('shoot')
   }
 
   showFloatingText(x, y, text, color = '#ffffff') {
@@ -338,6 +343,7 @@ export class PatientLevelScene extends Phaser.Scene {
     cv.collect()
     state.addScore(cv.scoreValue)
     this.showFloatingText(cv.x, cv.y, '+100', '#2ecc71')
+    sfx.play('pickup')
   }
 
   _onProjectileHealsPatient(projectile, patient) {
@@ -346,6 +352,7 @@ export class PatientLevelScene extends Phaser.Scene {
     if (killed) {
       state.addScore(patient.scoreValue)
       this.showFloatingText(patient.x, patient.y, `+${patient.scoreValue}`, '#a0d8b3')
+      sfx.play('patientHeal')
     }
     projectile.destroy()
   }
@@ -355,6 +362,7 @@ export class PatientLevelScene extends Phaser.Scene {
   _onGameOver() {
     this.gameOver = true
     this.physics.world.pause()
+    sfx.play('gameOver')
 
     const elapsed = Math.floor((this.time.now - this.gameStartTime) / 1000)
     const isHighScore = state.score > state.highScore
